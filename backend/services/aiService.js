@@ -1,203 +1,95 @@
-// =============================================
-//  GreenHand AI — AI Service
-// =============================================
+// services/aiService.js
+// Correct CommonJS import for OpenAI v4+
+const OpenAI = require("openai");
 
-import OpenAI from "openai";
-import dotenv from "dotenv";
+/**
+ * Get farm advisory from OpenAI API
+ * Falls back to mock response if API key is missing
+ */
+async function getFarmAdvice(query) {
+  const apiKey = process.env.OPENAI_API_KEY;
 
-dotenv.config();
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-function buildPrompt(crop, stage, weather) {
-  return `
-You are an agricultural expert AI helping small-scale farmers.
-
-Your job is to provide simple, practical, and actionable farming advice.
-
-INPUT:
-- Crop: ${crop}
-- Growth Stage: ${stage}
-- Weather:
-  - Temperature: ${weather.temperature}°C
-  - Humidity: ${weather.humidity}%
-  - Condition: ${weather.description || "Not specified"}
-
-INSTRUCTIONS:
-1. Use very simple language.
-2. Avoid technical jargon.
-3. Keep advice short and actionable.
-4. Provide a weekly plan with exactly 7 items.
-5. Each weekly plan item must start with "Day 1:" to "Day 7:".
-6. Alerts should mention meaningful weather, pest, or disease risks.
-7. Return only valid JSON.
-8. Do not include markdown.
-9. Do not include explanation outside JSON.
-
-OUTPUT FORMAT:
-{
-  "advice": "string",
-  "weekly_plan": [
-    "Day 1: ...",
-    "Day 2: ...",
-    "Day 3: ...",
-    "Day 4: ...",
-    "Day 5: ...",
-    "Day 6: ...",
-    "Day 7: ..."
-  ],
-  "alerts": ["...", "..."]
-}
-
-STRICT RULES:
-- weekly_plan must contain exactly 7 items
-- no empty fields
-- output must be valid parsable JSON
-`.trim();
-}
-
-function getRuleBasedAlerts(weather) {
-  const alerts = [];
-  const temperature = Number(weather.temperature);
-  const humidity = Number(weather.humidity);
-  const description = (weather.description || "").toLowerCase();
-
-  if (temperature >= 38) {
-    alerts.push("🔥 Extreme heat warning: Water crops twice daily.");
-  } else if (temperature >= 32) {
-    alerts.push("☀️ High heat: Water early morning and evening.");
+  // Fallback logic: if no API key, return mock response
+  if (!apiKey) {
+    console.warn(
+      "[aiService] No OPENAI_API_KEY found. Using fallback mock response."
+    );
+    return getFallbackAdvice(query);
   }
-
-  if (temperature <= 10) {
-    alerts.push("❄️ Cold damage risk: Cover seedlings at night.");
-  }
-
-  if (humidity >= 85) {
-    alerts.push("💧 Very high humidity: Watch for fungal diseases.");
-  } else if (humidity >= 70) {
-    alerts.push("🌫️ Moderate humidity: Check leaves for moisture spots.");
-  }
-
-  if (description.includes("rain") || description.includes("shower")) {
-    alerts.push("🌧️ Rain expected: Check for waterlogging in your fields.");
-  }
-
-  if (description.includes("storm") || description.includes("thunder")) {
-    alerts.push("⛈️ Storm risk: Secure plants and protect young crops.");
-  }
-
-  return alerts;
-}
-
-function extractJSON(text) {
-  if (!text || typeof text !== "string") return null;
 
   try {
-    return JSON.parse(text);
-  } catch { }
-
-  const codeBlockMatch = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
-  if (codeBlockMatch && codeBlockMatch[1]) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch { }
-  }
-
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[0]);
-    } catch { }
-  }
-
-  return null;
-}
-
-function validateAndFix(data) {
-  if (!data || typeof data !== "object") return null;
-
-  let advice = typeof data.advice === "string" ? data.advice.trim() : "";
-  let weeklyPlan = Array.isArray(data.weekly_plan) ? data.weekly_plan : [];
-  let alerts = Array.isArray(data.alerts) ? data.alerts : [];
-
-  if (!advice) {
-    advice = "Monitor your crop regularly and maintain proper watering.";
-  }
-
-  weeklyPlan = weeklyPlan
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
-
-  const fixedPlan = [];
-  for (let i = 0; i < 7; i++) {
-    const existing = weeklyPlan[i];
-    if (existing) {
-      fixedPlan.push(existing.startsWith(`Day ${i + 1}:`) ? existing : `Day ${i + 1}: ${existing}`);
-    } else {
-      fixedPlan.push(`Day ${i + 1}: Monitor crop health and check soil moisture.`);
-    }
-  }
-
-  alerts = alerts
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
-
-  return {
-    advice,
-    weekly_plan: fixedPlan,
-    alerts,
-  };
-}
-
-function getFallbackResponse(crop, stage, ruleAlerts) {
-  return {
-    advice: `Your ${crop} crop is in the ${stage} stage. Check it daily, water it properly, and watch for pests or disease signs.`,
-    weekly_plan: [
-      "Day 1: Water the crop and check soil moisture.",
-      "Day 2: Inspect leaves for pests or yellow spots.",
-      "Day 3: Remove weeds around the plants.",
-      "Day 4: Check for fungus or leaf damage.",
-      "Day 5: Water lightly and observe plant growth.",
-      "Day 6: Inspect stems and leaves again.",
-      "Day 7: Review overall crop health and plan next care steps."
-    ],
-    alerts: [
-      "⚠️ AI service unavailable. Using safe fallback advice.",
-      ...ruleAlerts
-    ]
-  };
-}
-
-export async function generateFarmAdvice(crop, stage, weather) {
-  const ruleAlerts = getRuleBasedAlerts(weather);
-
-  try {
-    const prompt = buildPrompt(crop, stage, weather);
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.2,
-      max_tokens: 900,
+    // Initialize OpenAI client (correct syntax for v4+)
+    const client = new OpenAI({
+      apiKey: apiKey,
     });
 
-    const rawText = response.choices?.[0]?.message?.content || "";
-    let parsed = extractJSON(rawText);
-    parsed = validateAndFix(parsed);
+    const response = await client.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert farm advisor. Provide concise, practical advice for farmers.",
+        },
+        {
+          role: "user",
+          content: query,
+        },
+      ],
+      max_tokens: 500,
+    });
 
-    if (!parsed) {
-      return getFallbackResponse(crop, stage, ruleAlerts);
-    }
+    // Extract text from response
+    const advice = response.choices[0].message.content;
+    return {
+      success: true,
+      source: "openai",
+      advice: advice,
+    };
+  } catch (error) {
+    console.error("[aiService] OpenAI API error:", error.message);
 
-    parsed.alerts = [...new Set([...parsed.alerts, ...ruleAlerts])];
-
-    return parsed;
-  } catch (err) {
-    console.error("[aiService] OpenAI call failed:", err.message);
-    return getFallbackResponse(crop, stage, ruleAlerts);
+    // Fallback to mock response on API error
+    return {
+      success: false,
+      source: "fallback",
+      advice: getFallbackAdvice(query).advice,
+      error: error.message,
+    };
   }
 }
+
+/**
+ * Fallback advice when API is unavailable
+ */
+function getFallbackAdvice(query) {
+  const fallbackResponses = {
+    crop: "For optimal crop yield: ensure proper soil pH (6.0-7.0), maintain consistent watering schedule, and apply balanced fertilizer (NPK 10-10-10) monthly.",
+    pest:
+      "For pest management: identify the pest species first, use neem oil spray for organic control, or consult local agricultural extension office for pesticides.",
+    water: "For irrigation: water during early morning or evening to reduce evaporation. Use drip irrigation for 30-40% water savings. Monitor soil moisture daily.",
+    soil: "For soil health: conduct soil testing annually, add organic matter (compost), practice crop rotation, and avoid monoculture.",
+    default:
+      "Farm advice: Keep detailed records, practice crop rotation, maintain soil health with organic matter, use drip irrigation, and consult local agricultural extension services for region-specific guidance.",
+  };
+
+  const queryLower = query.toLowerCase();
+  let response = fallbackResponses.default;
+
+  for (const [key, value] of Object.entries(fallbackResponses)) {
+    if (queryLower.includes(key)) {
+      response = value;
+      break;
+    }
+  }
+
+  return {
+    success: true,
+    source: "fallback",
+    advice: response,
+  };
+}
+
+module.exports = {
+  getFarmAdvice,
+};

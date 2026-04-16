@@ -1,70 +1,56 @@
-// =============================================
-//  GreenHand AI — Advisory API Route
-// =============================================
-
-import express from "express";
-import { generateFarmAdvice } from "../services/aiService.js";
-
+// routes/advisory.js
+// Correct CommonJS syntax for route handler
+const express = require("express");
 const router = express.Router();
+const { getFarmAdvice } = require("../services/aiService");
 
-router.post("/advice", async (req, res) => {
+/**
+ * POST /api/advice
+ * Get farm advisory based on user query
+ */
+router.post("/", async (req, res) => {
   try {
-    const { crop, stage, weather } = req.body;
+    const { query } = req.body;
 
-    if (!crop || typeof crop !== "string" || !crop.trim()) {
+    // Validate request
+    if (!query || typeof query !== "string" || query.trim() === "") {
       return res.status(400).json({
-        error: "Crop is required."
+        success: false,
+        error: "Query is required and must be a non-empty string",
       });
     }
 
-    if (!stage || typeof stage !== "string" || !stage.trim()) {
-      return res.status(400).json({
-        error: "Stage is required."
-      });
-    }
+    // Get advice from service
+    const result = await getFarmAdvice(query.trim());
 
-    if (!weather || typeof weather !== "object") {
-      return res.status(400).json({
-        error: "Weather object is required."
-      });
-    }
-
-    if (
-      weather.temperature === undefined ||
-      weather.humidity === undefined
-    ) {
-      return res.status(400).json({
-        error: "Weather must include temperature and humidity."
-      });
-    }
-
-    const normalizedWeather = {
-      temperature: Number(weather.temperature),
-      humidity: Number(weather.humidity),
-      description: typeof weather.description === "string"
-        ? weather.description.trim()
-        : "Not specified"
-    };
-
-    if (Number.isNaN(normalizedWeather.temperature) || Number.isNaN(normalizedWeather.humidity)) {
-      return res.status(400).json({
-        error: "Temperature and humidity must be valid numbers."
-      });
-    }
-
-    const result = await generateFarmAdvice(
-      crop.trim(),
-      stage.trim(),
-      normalizedWeather
-    );
-
-    return res.json(result);
-  } catch (err) {
-    console.error("[/api/advice Error]", err.message);
-    return res.status(500).json({
-      error: "Something went wrong on the server. Please try again."
+    // Return response
+    res.status(200).json({
+      success: result.success,
+      query: query,
+      advice: result.advice,
+      source: result.source,
+      ...(result.error && { error: result.error }),
+    });
+  } catch (error) {
+    console.error("[advisory route] Error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
     });
   }
 });
 
-export default router;
+/**
+ * GET /api/advice/health
+ * Health check endpoint
+ */
+router.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "farm-advisory",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+module.exports = router;
